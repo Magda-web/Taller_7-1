@@ -1,0 +1,294 @@
+---
+title: "Taller 7"
+author: "Matías Frugone-Álvarez"
+date: "2/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T,
+                      results = "hide")
+```
+
+## Taller sobre paleofire y neotoma
+
+En este taller vamos a ver una introducción a los paquetes de R paleofire y neotoma
+
+Estos paquetes nos permiten acceder a las bases de datos alojado en los sevidore de los proyectos [International Paleofire Network](https://paleofire.org/) y [Neotoma Paleoecology Database](https://www.neotomadb.org/) 
+
+
+## Definiendo un nuevo proyecto y directorio de trabajo
+
+Primero generamos un nuevo ptoyecto llamado Taller 7 y establecemos el directorio de trabajo usando github
+
+## Instalamos los paquetes necesarios
+
+R cuenta con una multitud de paquetes de funciones para gestionar información geoespacial, ver  [Analysis of Spatial Data](https://cran.r-project.org/web/views/Spatial.html). El paquete rgdal (de la libreria [GDAL](https://www.gdal.org); geospatial data abstraction library) es utilizado para leer y escribir información vectorial georeferenciada. Solo utilizaremos este paquete como una condicion para usar Neotoma y Paleofire.
+
+```{r paquetes}
+#install.packages("rgdal")
+#install.packages(c("neotoma", "analogue","paleofire","Bchron","rcarbon")
+```
+
+
+## Ralicemos una mapa de la base de datos GCDv4 charcoal records
+
+```{r paleofire}
+library(paleofire)
+######
+?pfSiteSel
+plot(pfSiteSel(num_version < 400 ) ) # Todos los sitios de la version GCD despues de 4.0.0
+plot(pfSiteSel(gcd_version == "GCD1" ) ) # Todos los sitios en GCDv1
+plot(pfSiteSel(update_date < "2016-01-01" ) ) # Sitios antes de 2016-01-01
+plot(pfSiteSel(update_date > "2018-01-01" ) ) # Sitios desde  2018-01-01
+
+```
+
+## Seleccion de sitios
+
+Podemos seleccionar un grupo de muestras según diferentes tipos de criterios ya sea geograficos, edad o cantidad de muestras.
+
+```{r paleofire2}
+plot(pfSiteSel()) 
+ID <- pfSiteSel(lat>-90 & lat<0, long>-76 & long<(-50),
+                date_int<=5000, num_version<400)
+plot(ID, col="gray90", bor="black", lwd=0.1)
+length(ID$id_site)
+sumID <- summary(ID)
+# solo los sitios con mas o igual a 20 muestras
+ID <- pfSiteSel(id_site %in% ID$id_site & num_samp>=20)
+length(ID$id_site)
+
+```
+
+## Transformar los datos
+
+
+```{r tranformar}
+TR1 <- pfTransform(ID,BasePeriod=c(200,2000),
+                   method=c("MinMax","Box-Cox","Z-Score"))
+TR2 <- pfTransform(ID,BasePeriod=c(200,2000),
+                   method=c("MinMax","Box-Cox","MinMax","Z-Score"))
+```
+
+## Resumen y composicion de datos
+
+
+```{r}
+COMP1 <- pfComposite(TR1, binning=TRUE,bins=seq(from=0,to=11000, by=500))
+COMP2 <- pfCompositeLF(TR2, tarAge=seq(-50,12000,20),binhw=10, hw=500, nboot=100)
+```
+
+## Generar figura de los datos recopilados
+
+```{r}
+#Opcion A
+
+plot(COMP1,conf=c(0.025,0.975), main="(a)", add="sitenum")
+
+plot(COMP2,conf=c(0.05,0.95),main="(a)",add="sitenum")
+
+# Opcion B
+circboot <- pfCircular(COMP1, b=NULL, nboot=1000,conf=c(0.005,0.025,0.975,0.995))
+plot(circboot)
+
+```
+
+# El paquete Neotoma
+
+```{r}
+library("tidyverse")
+library(permute)
+library(lattice)
+library(vegan)
+library(neotoma)
+library(analogue)
+library(rbacon)
+library("rioja")
+
+```
+
+#  Hacer un mapa de datos
+
+```{r}
+library("mapdata")
+library(neotoma)
+# Seleccionar los datos Mammuthus*:
+
+test <- get_dataset(taxonname='Mammuthus*')
+
+site.locs <- get_site(test)
+#print(site.locs)
+
+# Una forma cruda de hacer el océanos azul
+
+plot(1, type = 'n',
+     xlim=range(site.locs$long)+c(-10, 10),
+     ylim=range(site.locs$lat)+c(-10, 10),
+     xlab='Longitude', ylab = 'Latitude')
+rect(par("usr")[1],par("usr")[3],par("usr")[2],par("usr")[4],col = "lightblue")
+map('world',
+    interior=TRUE,
+    fill=TRUE,
+    col='gray',
+    xlim=range(site.locs$long)+c(-10, 10),
+    ylim=range(site.locs$lat)+c(-10, 10),
+    add=TRUE)
+
+points(site.locs$long, site.locs$lat, pch=19, cex=0.5, col='red')
+```
+
+
+# Trabajando con datos
+
+```{r}
+lake_o <- get_site(sitename = "Laguna del Maule")
+lake_o_ds <- get_dataset(lake_o)
+
+print(lake_o_ds)
+
+# Obtener el objeto bajado
+lake_o_dl <- get_download(19818)
+site <- get_site(lake_o_dl)
+names(lake_o_dl$`19818`$chronologies)
+
+# Obtener solo una cronologia, hechar un vistado a los datos:
+
+lake_o_chron <- get_chroncontrol(lake_o_dl$`19818`)
+
+lake_o_dl[[1]]$chronologies
+lake_o_dl[[1]]$chronologies[[1]]$chronology.id[1]
+#lake_o_dl[[1]]$chronologies[[2]]$chronology.id[1]
+
+print(lake_o_chron)
+
+# obtener los controles cronológicos
+cc1 = get_chroncontrol(lake_o_dl[[1]]$chronologies[[1]]$chronology.id[1])
+# cc2 = get_chroncontrol(lake_o_dl[[1]]$chronologies[[2]]$chronology.id[1])
+plot_chroncontrols <- function(x) {
+  
+  dat = data.frame(x$chron.control)
+  dat$age.young
+  
+  dat$vals = dat$control.type %in% c('Radiocarbon')
+  
+  ggplot(dat) + geom_point(aes(x=depth, y=age, colour=vals)) + 
+    geom_errorbar(data=dat, aes(x=depth, ymax=age.old, ymin=age.young, colour=vals)) + 
+    xlab('Depth (cm)') + ylab('Age cal a BP') + scale_color_manual("Control type", values=c('#F8766D', '#00BF7D'))
+  
+}
+
+```
+
+# Trabajando con modelos de edad
+
+
+```{r}
+library(ggplot2)
+plot_chroncontrols(cc1)
+dir.create("/home/ma1506/Documentos/Taller/Taller_7b/Cores")
+# Escriba el archivo con formato bacon en el disco para Bacon:
+write_agefile(lake_o_dl[[1]], chronology = 1, path = "/home/ma1506/Documentos/Taller/Taller_7b",
+              corename = "LDM", cal.prog = 'Bacon') 
+# ¿Funcionó?
+list.files("Cores/LDM")
+
+#Tenga en cuenta que estas son configuraciones muy 'predeterminadas', principalmente para garantizar que esto se ejecutará:
+
+library(rbacon)
+tester <- Bacon('LDM',acc.mean=21,acc.shape=1.7, mem.strength=4.4, mem.mean=0.6,res=12,
+            thick=2,d.by=1, ssize=2000, d.max=48,rotate.axes=F,depths.file = TRUE, suggest = FALSE, ask = FALSE)
+
+lake_o_dl[[1]] <- read_bacon("LDM", add = TRUE, path = ".", chron_name = "taller",
+                             download = lake_o_dl[[1]], sections = 25)
+
+dev.off()
+
+
+plot(lake_o_dl[[1]]$chronologies[[2]]$age, # the new age model
+     lake_o_dl[[1]]$chronologies[[1]]$age - lake_o_dl[[1]]$chronologies[[2]]$age,
+     xlab = "Calibrated Years BP",
+     ylab = "Age correction (+: new model younger)")
+abline(h = 0)
+```
+
+
+# Trabajando con diagramas
+
+```{r}
+suze <- get_site(sitename = 'Le Grand Etang%')
+suze_pollen=get_dataset(suze)
+suze_data=get_download(suze_pollen)
+
+core.pct <- data.frame(tran(suze_data[[1]]$counts, method = 'percent'))
+
+age <- suze_data[[1]]$sample.meta$age
+core.pct <- chooseTaxa(core.pct, max.abun = 10)
+
+Stratiplot(age ~ ., core.pct, sort = 'wa', type = 'poly',
+           ylab ='Years Before Present')
+
+df=data.frame(yr=rep(age,ncol(core.pct)),
+              per=as.vector(as.matrix(core.pct)),
+              taxa=as.factor(rep(colnames(core.pct),each=nrow(core.pct))))
+
+
+theme_new <- theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # remove grids
+                   panel.background = element_blank(), axis.line = element_line(colour = "black"),
+                   strip.text.x = element_text(size=10, angle=90, vjust=0), # Taxa names
+                   strip.background = element_blank(),
+                   strip.text.y = element_text(angle = 0),
+                   legend.position="none",panel.border = element_blank(),
+                   axis.text.x=element_text(angle=45,hjust=1)) # Axis tick label angle
+
+
+ggplot(df)+
+  geom_line(aes(yr,per))+
+  geom_area(aes(yr,per))+
+  scale_x_reverse(breaks =seq(0,100000,1000))+
+  scale_y_continuous(breaks =seq(0,100,10))+
+  xlab("Age (cal. BP)")+ylab("%")+
+  coord_flip()+
+  theme_new+
+  facet_grid(~df$taxa,scales = "free", space = "free")
+
+
+suze <- get_site(sitename = 'Le Grand Etang%')
+suze_pollen=get_dataset(suze)
+suze_data=get_download(suze_pollen)
+
+core.pct <- data.frame(tran(suze_data[[1]]$counts, method = 'percent'))
+
+age <- suze_data[[1]]$sample.meta$age
+core.pct <- chooseTaxa(core.pct, max.abun = 10)
+
+Stratiplot(age ~ ., core.pct, sort = 'wa', type = 'poly',
+           ylab ='Years Before Present')
+
+df=data.frame(yr=rep(age,ncol(core.pct)),
+              per=as.vector(as.matrix(core.pct)),
+              taxa=as.factor(rep(colnames(core.pct),each=nrow(core.pct))))
+
+
+theme_new <- theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # remove grids
+                   panel.background = element_blank(), axis.line = element_line(colour = "black"),
+                   strip.text.x = element_text(size=10, angle=90, vjust=0), # Taxa names
+                   strip.background = element_blank(),
+                   strip.text.y = element_text(angle = 0),
+                   legend.position="none",panel.border = element_blank(),
+                   axis.text.x=element_text(angle=45,hjust=1)) # Axis tick label angle
+
+
+ggplot(df)+
+  geom_line(aes(yr,per))+
+  geom_area(aes(yr,per))+
+  scale_x_reverse(breaks =seq(0,100000,1000))+
+  scale_y_continuous(breaks =seq(0,100,10))+
+  xlab("Age (cal. BP)")+ylab("%")+
+  coord_flip()+
+  theme_new+
+  facet_grid(~df$taxa,scales = "free", space = "free")
+
+```
+
+
